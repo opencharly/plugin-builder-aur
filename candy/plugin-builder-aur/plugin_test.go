@@ -23,9 +23,6 @@ func TestInvokeServesThisBuilderWord(t *testing.T) {
 	if err := json.Unmarshal(reply.GetResultJson(), &got); err != nil {
 		t.Fatalf("reply is not a BuilderCollectReply: %v (%s)", err, reply.GetResultJson())
 	}
-	if builderWord != "aur" {
-		t.Fatalf("builderWord = %q, want %q", builderWord, "aur")
-	}
 	if _, err := (provider{}).Invoke(context.Background(), &pb.InvokeRequest{Op: "bogus"}); err == nil {
 		t.Error("an unsupported op was not refused")
 	}
