@@ -11,19 +11,48 @@ import (
 	"github.com/opencharly/spec/spec"
 )
 
-// The provider serves its OWN word through the shared builder dispatch (sdk.InvokeBuilder): a
-// collect-context call answers for "aur", and an op no builder serves is refused, never ignored.
+// The provider serves its OWN word on EVERY builder leg, not only resolve: the collect-context and
+// reverse replies equal kit's own for the literal word "aur", so a dispatch routed to another
+// builder fails here, and an op no builder serves is still refused.
 func TestInvokeServesThisBuilderWord(t *testing.T) {
-	in, _ := json.Marshal(spec.BuilderCollectInput{Candy: "c", Builder: builderWord})
-	reply, err := provider{}.Invoke(context.Background(), &pb.InvokeRequest{Op: "collect-context", ParamsJson: in})
+	ctx := context.Background()
+
+	collect := spec.BuilderCollectInput{Candy: "c", Builder: "aur"}
+	params, _ := json.Marshal(collect)
+	reply, err := provider{}.Invoke(ctx, &pb.InvokeRequest{Op: "collect-context", ParamsJson: params})
 	if err != nil {
 		t.Fatalf("Invoke(collect-context) for %q: %v", builderWord, err)
 	}
-	var got spec.BuilderCollectReply
-	if err := json.Unmarshal(reply.GetResultJson(), &got); err != nil {
-		t.Fatalf("reply is not a BuilderCollectReply: %v (%s)", err, reply.GetResultJson())
+	wantCtx, err := kit.BuilderCollectContext("aur", collect)
+	if err != nil {
+		t.Fatalf("kit.BuilderCollectContext(%q): %v", "aur", err)
 	}
-	if _, err := (provider{}).Invoke(context.Background(), &pb.InvokeRequest{Op: "bogus"}); err == nil {
+	wantCollect, _ := json.Marshal(spec.BuilderCollectReply{Context: wantCtx, Package: kit.BuilderPackageOutput("aur", "c")})
+	if !bytes.Equal(reply.GetResultJson(), wantCollect) {
+		t.Errorf("collect-context served another builder's reply:\n got %s\nwant %s", reply.GetResultJson(), wantCollect)
+	}
+
+	// Every key a word's reverse reads, so the leg yields ops whichever builder it is routed to; a
+	// dispatch to a different word then answers different ops, which the equality below catches.
+	rev := spec.BuilderReverseInput{Candy: "c", Builder: "aur", Context: map[string]any{
+		"packages": []any{"x"}, "env_name": "e", "tools": []any{"t"}, "manifest": "m.toml",
+		"lib_dir": "/l", "ld_conf": "/e.conf",
+	}}
+	params, _ = json.Marshal(rev)
+	reply, err = provider{}.Invoke(ctx, &pb.InvokeRequest{Op: "reverse", ParamsJson: params})
+	if err != nil {
+		t.Fatalf("Invoke(reverse): %v", err)
+	}
+	ops := kit.BuilderReverse("aur", rev)
+	if len(ops) == 0 {
+		t.Fatalf("kit.BuilderReverse(%q) yielded no teardown ops for a full context; the pin would be vacuous", "aur")
+	}
+	wantRev, _ := json.Marshal(spec.BuilderReverseReply{ReverseOps: ops})
+	if !bytes.Equal(reply.GetResultJson(), wantRev) {
+		t.Errorf("reverse served another builder's teardown:\n got %s\nwant %s", reply.GetResultJson(), wantRev)
+	}
+
+	if _, err := (provider{}).Invoke(ctx, &pb.InvokeRequest{Op: "bogus"}); err == nil {
 		t.Error("an unsupported op was not refused")
 	}
 }
