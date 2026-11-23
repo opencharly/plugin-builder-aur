@@ -75,3 +75,24 @@ func TestInvokeResolvesThisBuilderWordsOwnStage(t *testing.T) {
 		t.Errorf("Invoke(resolve) served another builder's stage:\n got %s\nwant %s", reply.GetResultJson(), wantJSON)
 	}
 }
+
+// The reply this plugin serves carries the REQUIRED output discriminator (spec#424), asserted
+// here rather than delegated: against the pre-change sdk this file does not even compile (no
+// `Output` field, no kit.BuilderOutput* vocabulary), and a plugin that stopped routing through
+// sdk.InvokeBuilder would answer with it empty — which the host now refuses at its first message
+// (opencharly/sdk#615).
+func TestInvokeResolveReplyCarriesTheOutputDiscriminator(t *testing.T) {
+	in := spec.BuilderResolveInput{Candy: "c", Builder: "aur", StageName: "c-aur-build", UID: 1000, GID: 1000, Home: "/home/u", User: "u"}
+	params, _ := json.Marshal(in)
+	reply, err := provider{}.Invoke(context.Background(), &pb.InvokeRequest{Op: "resolve", ParamsJson: params})
+	if err != nil {
+		t.Fatalf("Invoke(resolve): %v", err)
+	}
+	var out spec.BuilderResolveReply
+	if err := json.Unmarshal(reply.GetResultJson(), &out); err != nil {
+		t.Fatalf("decode reply: %v", err)
+	}
+	if out.Output != kit.BuilderOutputPackage {
+		t.Errorf("the resolve reply carries output=%q, want %q: the host refuses a reply without it", out.Output, "package")
+	}
+}
